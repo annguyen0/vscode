@@ -135,20 +135,11 @@ configurationRegistry.registerConfiguration({
 			markdownDescription: nls.localize('chat.editing.confirmEditRequestRetry', "Whether to show a confirmation before retrying a request and its associated edits."),
 			default: true,
 		},
-		'chat.experimental.variables.editor': {
+		'chat.editing.experimental.enableRestoreFile': {
 			type: 'boolean',
-			description: nls.localize('chat.experimental.variables.editor', "Enables variables for editor chat."),
-			default: true
-		},
-		'chat.experimental.variables.notebook': {
-			type: 'boolean',
-			description: nls.localize('chat.experimental.variables.notebook', "Enables variables for notebook chat."),
-			default: true
-		},
-		'chat.experimental.variables.terminal': {
-			type: 'boolean',
-			description: nls.localize('chat.experimental.variables.terminal', "Enables variables for terminal chat."),
-			default: false
+			scope: ConfigurationScope.APPLICATION,
+			markdownDescription: nls.localize('chat.editing.enableRestoreFile', "Whether to show a toggle to restore an earlier version of a file that was edited in a chat editing session request."),
+			default: false,
 		},
 		'chat.experimental.detectParticipant.enabled': {
 			type: 'boolean',

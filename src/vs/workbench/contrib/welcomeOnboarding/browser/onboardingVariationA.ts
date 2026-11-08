@@ -45,11 +45,10 @@ import {
 	IOnboardingThemeOption,
 	getOnboardingStepTitle,
 	getOnboardingStepSubtitle,
-	GHE_FULL_URI_REGEX,
-	GheParseResultKind,
-	parseGheInstanceInput,
 } from '../common/onboardingTypes.js';
 import { IOnboardingService } from '../common/onboardingService.js';
+import { addGitHubEnterpriseUri, getConfiguredGitHubEnterpriseUris, GheParseResultKind, isValidGitHubEnterpriseUri, parseGheInstanceInput } from '../../../services/accounts/common/githubEnterprise.js';
+import { IWorkspaceTrustManagementService } from '../../../../platform/workspace/common/workspaceTrust.js';
 
 type OnboardingStepViewClassification = {
 	owner: 'cwebster-99';
@@ -86,8 +85,7 @@ const defaultChat = product.defaultChatAgent;
  * Variation A — Classic Wizard Modal
  *
  * A centered modal overlay with progress dots, clean step transitions,
- * and polished navigation. Sits on top of the agent sessions welcome
- * tab. When dismissed, the welcome tab is revealed underneath.
+ * and polished navigation.
  *
  * Steps:
  * 1. Sign In — sessions-style sign-in hero with GitHub Copilot, Google, and Apple options, plus
@@ -150,6 +148,7 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 		@ICommandService private readonly commandService: ICommandService,
 		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
 		@IChatMicrosoftSignInProbeService private readonly microsoftSignInProbeService: IChatMicrosoftSignInProbeService,
+		@IWorkspaceTrustManagementService private readonly workspaceTrustManagementService: IWorkspaceTrustManagementService,
 	) {
 		super();
 
@@ -589,6 +588,7 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 
 	private _renderEnterpriseInstanceForm(actions: HTMLElement): void {
 		const enterprisePromptLabel = this._getEnterpriseInstancePromptLabel();
+		const replacedUri = getConfiguredGitHubEnterpriseUris(this.configurationService, this.workspaceTrustManagementService.isWorkspaceTrusted(), defaultChat.providerUriSetting).find(uri => !isValidGitHubEnterpriseUri(uri));
 
 		const container = append(actions, $('.onboarding-a-signin-ghe-input'));
 
@@ -615,7 +615,7 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 				validate();
 				return;
 			}
-			await this._submitEnterpriseInstance(result.resolvedUri);
+			await this._submitEnterpriseInstance(result.resolvedUri, replacedUri);
 		};
 		submitAction.run = submit;
 
@@ -644,7 +644,7 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 				case GheParseResultKind.Invalid:
 					inputBox.element.classList.add('error');
 					message.classList.add('error');
-					message.textContent = localize('onboarding.signIn.enterprise.invalid', 'You must enter a valid {0} instance (i.e. "octocat" or "https://octocat.ghe.com")', defaultChat.provider.enterprise.name);
+					message.textContent = localize('onboarding.signIn.enterprise.invalid2', "Enter a GHE.com instance name or HTTPS URL.");
 					submitAction.enabled = false;
 					return false;
 			}
@@ -757,23 +757,30 @@ export class OnboardingVariationA extends Disposable implements IOnboardingServi
 	}
 
 	private async _handleEnterpriseSignIn(): Promise<void> {
-		const existingUri = this.configurationService.getValue<string>(defaultChat.providerUriSetting);
-		if (typeof existingUri !== 'string' || !GHE_FULL_URI_REGEX.test(existingUri)) {
-			this.enterpriseInstanceValue = existingUri ?? '';
-			this.enterpriseSignInWatch = StopWatch.create();
+		let uris: readonly string[];
+		try {
+			uris = getConfiguredGitHubEnterpriseUris(this.configurationService, this.workspaceTrustManagementService.isWorkspaceTrusted(), defaultChat.providerUriSetting);
+		} catch {
+			this._notifyEnterpriseSignInError();
+			return;
+		}
+		const invalidUri = uris.find(uri => !isValidGitHubEnterpriseUri(uri));
+		const hasCloudInstance = uris.some(uri => parseGheInstanceInput(uri).kind === GheParseResultKind.FullUri);
+		if (!hasCloudInstance || invalidUri !== undefined) {
+			this.enterpriseInstanceValue = invalidUri ?? '';
+			this.enterpriseSignInWatch ??= StopWatch.create();
 			this._setEnterpriseSignInUiState('instance');
 			return;
 		}
 
-		this.enterpriseInstanceValue = existingUri;
 		await this._runEnterpriseSignInSetup();
 	}
 
-	private async _submitEnterpriseInstance(resolvedUri: string): Promise<void> {
+	private async _submitEnterpriseInstance(resolvedUri: string, replacedUri?: string): Promise<void> {
 		try {
-			await this.configurationService.updateValue(defaultChat.providerUriSetting, resolvedUri, ConfigurationTarget.USER);
+			await addGitHubEnterpriseUri(this.configurationService, resolvedUri, this.workspaceTrustManagementService.isWorkspaceTrusted(), defaultChat.providerUriSetting, replacedUri);
 			this.enterpriseInstanceValue = resolvedUri;
-			await this._runEnterpriseSignInSetup();
+			await this._handleEnterpriseSignIn();
 		} catch {
 			this.enterpriseSignInWatch = undefined;
 			this._setEnterpriseSignInUiState('instance');
